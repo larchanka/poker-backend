@@ -224,7 +224,7 @@ export class TexasHoldemGame {
     const players:Player[] = []
     // Reset and activate players who were sitting out and have chips
     this.players.forEach((p) => {
-      console.log({p})
+      if (p.isSpectator) return;
       if (p.status === "sitting-out" && p.chips > 0) {
         p.status = "active";
         logger.info(`${p.name} is now active for the new hand.`);
@@ -341,19 +341,19 @@ export class TexasHoldemGame {
     this.currentBettingRound = "pre-flop";
     // The first player to act pre-flop is typically the player to the left of the big blind
     this.currentPlayerIndex = (bbIndex + 1) % this.players.length;
-    // Skip non-active players to find the first player to act
+    // Skip non-active players and spectators to find the first player to act
     checkedCount = 0;
     while (
-      this.players[this.currentPlayerIndex].status !== "active" &&
+      (this.players[this.currentPlayerIndex].status !== "active" || this.players[this.currentPlayerIndex].isSpectator) &&
       checkedCount < this.players.length
     ) {
       this.currentPlayerIndex =
         (this.currentPlayerIndex + 1) % this.players.length;
       checkedCount++;
     }
-    if (this.players[this.currentPlayerIndex].status !== "active") {
+    if (this.players[this.currentPlayerIndex].status !== "active" || this.players[this.currentPlayerIndex].isSpectator) {
       logger.error(
-        "Error: No active player found after Big Blind to start pre-flop action."
+        "Error: No active non-spectator player found after Big Blind to start pre-flop action."
       );
       this.endHand();
       return;
@@ -402,6 +402,18 @@ export class TexasHoldemGame {
 
   // Prompt the current player for their action
   private promptCurrentPlayerAction(): void {
+    // Check if only one player remains in the hand
+    const playersStillInHand = this.players.filter(
+      (p) =>
+        p.status !== "folded" &&
+        p.status !== "sitting-out" &&
+        p.status !== "spectator" &&
+        p.hand.length > 0
+    );
+    if (playersStillInHand.length === 1) {
+      this.endHandEarly();
+      return;
+    }
     const currentPlayer = this.players[this.currentPlayerIndex];
     // Ensure current player is active and has a hand for this round.
     if (
@@ -419,8 +431,10 @@ export class TexasHoldemGame {
       this.actionTimeout = null;
     }
 
-    // Start a 30-second timer for auto-fold
+    // Start a 30-second timer for auto-fold, but check it's still this player's turn before folding
+    const playerIdAtTimeoutSet = currentPlayer.id;
     this.actionTimeout = setTimeout(() => {
+      // Only auto-fold if it's still this player's turn
       logger.info(`Auto-folding player ${currentPlayer.name} (${currentPlayer.id}) due to timeout.`);
       this.handlePlayerAction(currentPlayer.id, "fold");
     }, 30000);
@@ -439,18 +453,30 @@ export class TexasHoldemGame {
 
   // Move to the next eligible player to act
   private moveToNextPlayer(): void {
+    // Check if only one player remains in the hand
+    const playersStillInHand = this.players.filter(
+      (p) =>
+        p.status !== "folded" &&
+        p.status !== "sitting-out" &&
+        p.status !== "spectator" &&
+        p.hand.length > 0
+    );
+    if (playersStillInHand.length === 1) {
+      this.endHandEarly();
+      return;
+    }
     const originalPlayerIndex = this.currentPlayerIndex;
     let nextPlayerFound = false;
     let checkedCount = 0;
 
-    // Loop through players to find the next active player who hasn't acted or needs to react to a raise
+    // Loop through players to find the next active, non-spectator player who hasn't acted or needs to react to a raise
     while (!nextPlayerFound && checkedCount < this.players.length) {
       this.currentPlayerIndex =
         (this.currentPlayerIndex + 1) % this.players.length;
-      const nextPlayer = this.players[this.currentPlayerIndex];
+      let nextPlayer = this.players[this.currentPlayerIndex];
 
-      // Only active players who are still in the hand and haven't acted (or need to react to a raise) can act
-      if (nextPlayer.status === "active" && nextPlayer.hand.length > 0 && nextPlayer.chips > 0) {
+      // Only active, non-spectator players who are still in the hand and haven't acted (or need to react to a raise) can act
+      if (nextPlayer.status === "active" && !nextPlayer.isSpectator && nextPlayer.hand.length > 0 && nextPlayer.chips > 0) {
         if (
           nextPlayer.currentBet < this.minimumBetForCall ||
           !nextPlayer.hasActed
@@ -949,6 +975,7 @@ export class TexasHoldemGame {
     this.players = this.players.filter((p) => {
       if (p.isSpectator) {
         p.hand = [];
+        // p.status = "active";
         p.currentBet = 0;
         p.hasActed = false;
         return true; // Keep spectators
