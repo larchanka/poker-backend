@@ -299,7 +299,7 @@
                 readyGameBtn.disabled = true;
                 myPlayerId = null; // Reset player ID on disconnect
                 myLocalHand = []; // Clear local hand on disconnect
-                setTimeout(connectWebSocket, 3000); // Attempt to reconnect after 3 seconds
+                setTimeout(connectWebSocket, 8080); // Attempt to reconnect after 3 seconds
             };
 
             ws.onerror = (error) => {
